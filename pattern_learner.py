@@ -33,7 +33,7 @@ class TDLearner:
         # search params
         self.max_iter = max_iter
         self.max_time = max_time
-        self.exploration = 5
+        self.exploration = 7.5
 
         # history: (state value, feature key -> feature num)
         self.TD_history = collections.deque()
@@ -42,69 +42,61 @@ class TDLearner:
         self.expand_time = 0
         self.feature_time = 0
         self.move_time = 0
+        self.kl = {}
 
     def move(self, go, side, mode='test'):
-        # if mode == 'test':
-        return self.move2(go, side, mode)
-        # else:
-        #     return self.move1(go, side, mode)
+        if mode == 'test':
+            return self.move2(go, side, mode)
+        else:
+            return self.move1(go, side, mode)
 
-    # def move1(self, go, side, mode='test'):
-    #     """ make a move
-    #     """
-    #     # current state value
-    #     state_value, features = self.compute_state_value(board=go.board)
-    #     # epsilon greedy
-    #     if mode == 'train' and np.random.rand() < self.epsilon:
-    #         actions = [(i, j) for j in range(5) for i in range(5) if go.valid_place_check(i, j, side)] + [(-1, -1)]
-    #         act = random.choice(actions)
-    #         # add to history
-    #         if act[0] == -1:
-    #             self.TD_history.append((state_value, features))
-    #         else:
-    #             next_state_value, next_features = self.get_next_state_value(go, act[0], act[1], side)
-    #             self.TD_history.append((next_state_value, next_features))
-    #     else:
-    #         actions = [(i, j) for j in range(5) for i in range(5) if go.valid_place_check(i, j, side)]
-    #         action_values = [(state_value, features, (-1, -1))]
-    #         # choose action
-    #         for i, j in actions:
-    #             next_state_value, next_features = self.get_next_state_value(go, i, j, side)
-    #             action_values.append((next_state_value, next_features, (i, j)))
-    #         # black: max, white: min
-    #         if side == 1:
-    #             action_values.sort(key=lambda x: x[0], reverse=True)
-    #         else:
-    #             action_values.sort(key=lambda x: x[0], reverse=False)
-    #         act = random.choice([a for a in action_values if a[0] == action_values[0][0]])
-    #         # add to history
-    #         self.TD_history.append((act[0], act[1]))
-    #         # return action only
-    #         act = act[2]
-    #
-    #     if len(self.TD_history) > 2:
-    #         self.TD_history.popleft()
-    #
-    #     if act[0] == -1:
-    #         return "PASS"
-    #     else:
-    #         return act
-
-    def move2(self, go, side, mode='test'):
+    def move1(self, go, side, mode='test'):
         """ make a move
         """
         # current state value
         state_value, features = self.compute_state_value(board=go.board)
+        actions = [(m['x'], m['y']) for m in go.valid_moves(side)]
+        # epsilon greedy
+        if mode == 'train' and np.random.rand() < self.epsilon:
+            act = random.choice(actions)
+            # add to history
+            if act[0] == -1:
+                self.TD_history.append((state_value, features))
+            else:
+                next_state_value, next_features = self.get_next_state_value(go, act[0], act[1], side)
+                self.TD_history.append((next_state_value, next_features))
+        else:
+            action_values = []
+            # choose action
+            for i, j in actions:
+                next_state_value, next_features = self.get_next_state_value(go, i, j, side)
+                action_values.append((next_state_value, next_features, (i, j)))
+            # black: max, white: min
+            if side == 1:
+                action_values.sort(key=lambda x: x[0], reverse=True)
+            else:
+                action_values.sort(key=lambda x: x[0], reverse=False)
+            act = random.choice([a for a in action_values if a[0] == action_values[0][0]])
+            # add to history
+            self.TD_history.append((act[0], act[1]))
+            # return action only
+            act = act[2]
+
+        if len(self.TD_history) > 2:
+            self.TD_history.popleft()
+
+        if act[0] == -1:
+            return 0
+        else:
+            return act
+
+    def move2(self, go, side, mode='test'):
+        """ make a move
+        """
         # epsilon-greedy
         if mode == 'train' and np.random.rand() < self.epsilon:
             actions = [(m['x'], m['y']) for m in go.valid_moves(side)]
             act = random.choice(actions)
-            # add to history
-            if act[0] == -1:
-                self.TD_history.append((state_value, features, state_value))
-            else:
-                next_state_value, next_features = self.get_next_state_value(go, act[0], act[1], side)
-                self.TD_history.append((next_state_value, next_features, next_state_value))
         else:
             # search and gain short-term memory
             action, searched_iter, searched_time, Q = self.search(go, side)
@@ -119,16 +111,6 @@ class TDLearner:
             else:
                 act = (-1, -1)
 
-            # add to history
-            if act[0] == -1:
-                self.TD_history.append((state_value, features, Q))
-            else:
-                next_state_value, next_features = self.get_next_state_value(go, act[0], act[1], side)
-                self.TD_history.append((next_state_value, next_features, Q))
-
-        if len(self.TD_history) > 2:
-            self.TD_history.popleft()
-
         if act[0] == -1:
             return 0
         else:
@@ -136,7 +118,6 @@ class TDLearner:
 
     def search(self, go, side):
         root = TreeNode(go, side, self)
-        # print('valid moves:', root.moves)
         i = 0
         start_time = time.time()
         cur_time = time.time()
@@ -147,24 +128,9 @@ class TDLearner:
 
             i += 1
             cur_time = time.time()
-
-        # if i > 10000:
-        #     queue = collections.deque([root])
-        #     while len(queue) > 0:
-        #         node = queue.popleft()
-        #         if node.visit > 100:
-        #             print('')
-        #             node.go.visualize_board()
-        #             print('step:', node.go.n_move)
-        #             print('side:', node.side)
-        #             print('Q:', node.Q())
-        #             print('num visit:', node.visit)
-        #             print('post value:', node.post_value)
-        #             print('prior value:', node.prior_value)
-        #             print('children:', get_valid_move(go, node.side))
-        #         for k, c in node.children.items():
-        #             queue.append(c)
         best_child = self.best_child(root, only_q=True)
+        # for k, c in root.children.items():
+        #     print('action', k, 'num visits', c.visit, 'Q', c.Q())
         return best_child, i, cur_time - start_time, root.children[best_child].Q()
 
     def select(self, node):
@@ -183,26 +149,42 @@ class TDLearner:
         return node
 
     def best_child(self, node, only_q=False, is_root=False):
+        rev_Q = 1 if node.side == 1 else -1
+        best_actions = []
+        best_value = float('-inf')
         if only_q:
-            values = np.array([c.Q() for _, c in node.children.items()])
+            for i, (k, c) in enumerate(node.children.items()):
+                value = c.Q() * rev_Q
+                if value > best_value:
+                    best_actions = [k]
+                    best_value = value
+                elif value == best_value:
+                    best_actions.append(k)
         else:
             # compute PUCT value
             if is_root:
                 n = len(node.children.items())
-                d_noise = np.random.dirichlet(alpha=[0.3 for _ in range(n)], size=(n,))
-                values = np.array(
-                    [c.Q() + self.exploration * (0.75 * node.probs[i] + 0.25 * d_noise[i]) *
-                     np.sqrt(node.visit) / (1 + c.visit) for i, (_, c) in enumerate(node.children.items())])
+                d_noise = np.random.dirichlet(alpha=[0.3 for _ in range(n)])
+                for i, (k, c) in enumerate(node.children.items()):
+                    value = c.Q() * rev_Q + self.exploration * (0.75 * node.probs[i] + 0.25 * d_noise[i]) * np.sqrt(node.visit) / (1 + c.visit)
+                    if value > best_value:
+                        best_actions = [k]
+                        best_value = value
+                    elif value == best_value:
+                        best_actions.append(k)
             else:
-                values = np.array(
-                    [c.Q() + self.exploration * node.probs[i] * np.sqrt(node.visit) / (1 + c.visit)
-                     for i, (_, c) in enumerate(node.children.items())])
-        # black: max, white: min
-        if node.side == 1:
-            max_values = np.where(values == np.max(values))[0]
+                for i, (k, c) in enumerate(node.children.items()):
+                    value = c.Q() * rev_Q + self.exploration * node.probs[i] * np.sqrt(node.visit) / (1 + c.visit)
+                    if value > best_value:
+                        best_actions = [k]
+                        best_value = value
+                    elif value == best_value:
+                        best_actions.append(k)
+
+        if len(best_actions) > 1:
+            return random.choice(best_actions)
         else:
-            max_values = np.where(values == np.min(values))[0]
-        return list(node.children.keys())[np.random.choice(max_values)]
+            return best_actions[0]
 
     def expand(self, node):
         e_start = time.time()
@@ -242,7 +224,8 @@ class TDLearner:
 
         if len(node.moves) == 0:
             # probs
-            priors = np.array([c.prior_value for c in node.children.values()])
+            p_rev = 1 if node.side == 1 else -1
+            priors = np.array([c.prior_value * p_rev for c in node.children.values()])
             prior_e = np.exp(priors - np.max(priors))
             prior_probs = prior_e / prior_e.sum()
             node.probs = prior_probs
@@ -272,8 +255,8 @@ class TDLearner:
             return
         else:
             # compute TD-error
-            value_t1, feature_t1, _ = self.TD_history[0]
-            value_t2 = r if r else self.TD_history[1][2]
+            value_t1, feature_t1 = self.TD_history[0]
+            value_t2 = r if r else self.TD_history[1][0]
             td_error = (value_t2 - value_t1) / np.sum([n ** 2 for n in feature_t1.values()])
             # update
             for k, n in feature_t1.items():
@@ -282,11 +265,15 @@ class TDLearner:
                     delta = self.alpha * n * td_error * w_rev
                     weight = self.weights[w_key] + delta
                     self.weights[w_key] = weight
+                    self.kl[w_key] = self.kl.get(w_key, 0) + delta
 
     def get_next_state_value(self, go, i, j, side):
         next_go = go.copy_board()
-        next_go.place_chess(i, j, side)
-        next_go.remove_died_pieces(3 - side)
+        if i == -1:
+            next_go.place_pass()
+        else:
+            next_go.place_chess(i, j, side)
+            next_go.remove_died_pieces(3 - side)
         next_state_value, next_features = self.compute_state_value(board=next_go.board)
         return next_state_value, next_features
 
@@ -314,20 +301,23 @@ class TDLearner:
                 feature_value[k] = 0.
                 self.weight_sharing[k] = (k, 1)
                 # add weight sharing for features except li 1x1
-                if p_size != 1:
-                    self.add_weight_sharing(pattern=pattern, p_size=p_size, shared_key=k)
-                    # flip for 2x2 and 3x3 location independent
-                    if p_size != 5:
-                        # flip
-                        p_flip = np.flipud(pattern)
-                        k_flip = encode(p_flip, size=p_size)
-                        self.weight_sharing[k_flip] = (k, 1)
-                        self.add_weight_sharing(pattern=p_flip, p_size=p_size, shared_key=k)
-                else:
-                    # reverse only for 1x1
-                    p_rev = self.reverse_shape(pattern)
-                    k_rev = encode(p_rev, size=p_size)
-                    self.weight_sharing[k_rev] = (k, -1)
+                # if p_size != 1:
+                #     self.add_weight_sharing(pattern=pattern, p_size=p_size, shared_key=k)
+                #     # flip for 2x2 and 3x3 location independent
+                #     if p_size != 5:
+                #         # flip
+                #         p_flip = np.flipud(pattern)
+                #         k_flip = encode(p_flip, size=p_size)
+                #         self.weight_sharing[k_flip] = (k, 1)
+                #         self.add_weight_sharing(pattern=p_flip, p_size=p_size, shared_key=k)
+                # else:
+                #     # reverse only for 1x1 location independent
+                #     p_rev = self.reverse_shape(pattern)
+                #     k_rev = encode(p_rev, size=p_size)
+                #     # self.weights[k_rev] = 0.
+                #     self.weight_sharing[k_rev] = (k, -1)
+        # sigmoid activation
+        #state_value = 1 / (1 + np.exp(-np.sum(list(feature_value.values()))))
         # tanh activation
         state_value = np.tanh(np.sum(list(feature_value.values())))
 
@@ -394,6 +384,8 @@ class TreeNode:
         # possible actions
         start = time.time()
         self.moves = [(m['x'], m['y']) for m in go.valid_moves(side)]
+        if go.n_move > 20:
+            self.moves.append((-1, -1))
         end = time.time()
         plyr.move_time += end - start
 
@@ -410,22 +402,9 @@ class TreeNode:
 
     def Q(self):
         if self.visit == 0:
-            return 0
+            return 0.5
         else:
             return self.post_value / self.visit
-
-
-# def get_valid_move(go, side):
-#     if go.n_move == 0:
-#         possible_moves = [(1, 1), (1, 2), (2, 2)]
-#     elif go.n_move == 1:
-#         possible_moves = [(i, j) for j in range(5) for i in range(5)
-#                           if i != 0 and i != 4 and j != 0 and j != 4 and go.board[i][j] == 0]
-#     else:
-#         possible_moves = [(i, j) for j in range(5) for i in range(5) if go.valid_place_check(i, j, side)]
-#         if len(possible_moves) == 0:
-#             possible_moves = [(-1, -1)]
-#     return possible_moves
 
 
 def read_moves():
