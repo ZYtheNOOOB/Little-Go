@@ -1,5 +1,5 @@
 # Little-Go
-USC CS561 project. **Implement a GO agent for 5x5 GO, no deep learning.**
+USC CS561 project. **Implement a GO agent for 5x5 GO, no machine learning libraries allowed.**
 
 ## Algorithm Applied
 
